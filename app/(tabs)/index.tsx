@@ -1,95 +1,123 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl, ScrollView } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { useMonitoring } from '../context/MonitoringContext';
-
-const RECENT_ACTIVITIES = [
-  {
-    id: '1',
-    type: 'status',
-    icon: 'bed',
-    title: 'Started Sleeping',
-    time: '15 mins ago',
-    color: '#9BCE22'
-  },
-  {
-    id: '2',
-    type: 'alert',
-    icon: 'volume-up',
-    title: 'Crying Detected',
-    time: '45 mins ago',
-    color: '#FF4444'
-  },
-  {
-    id: '3',
-    type: 'movement',
-    icon: 'child',
-    title: 'Movement Detected',
-    time: '1 hour ago',
-    color: '#FFA500'
-  },
-  {
-    id: '4',
-    type: 'temperature',
-    icon: 'thermometer-half',
-    title: 'Room Temperature Normal',
-    time: '2 hours ago',
-    color: '#4CAF50'
-  }
-];
+import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 export default function HomeScreen() {
-  const router = useRouter();
-  const { babyStatus, lastUpdate } = useMonitoring();
+  const { user, startScan, stopScan, getScanStatus } = useAuth();
+  const [deviceStatus, setDeviceStatus] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    checkDeviceStatus();
+  }, []);
+
+  const checkDeviceStatus = async () => {
+    setRefreshing(true);
+    const status = await getScanStatus();
+    if (status) {
+      setDeviceStatus(status.status);
+    }
+    setRefreshing(false);
+  };
+
+  const handleStartScan = async () => {
+    setIsLoading(true);
+    const success = await startScan();
+    if (success) {
+      setDeviceStatus('scanning');
+    }
+    setIsLoading(false);
+  };
+
+  const handleStopScan = async () => {
+    setIsLoading(true);
+    const success = await stopScan();
+    if (success) {
+      setDeviceStatus('idle');
+    }
+    setIsLoading(false);
+  };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView 
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={checkDeviceStatus}
+          colors={['#9BCE22']}
+        />
+      }
+    >
       <View style={styles.statusCard}>
-        <Text style={styles.statusTitle}>Current Status</Text>
+        <Text style={styles.statusTitle}>Device Status</Text>
         <View style={styles.statusContent}>
-          <FontAwesome name="child" size={32} color="#9BCE22" />
-          <Text style={styles.statusText}>{babyStatus}</Text>
-          <Text style={styles.statusTime}>Last updated: {lastUpdate}</Text>
+          {refreshing ? (
+            <ActivityIndicator size="small" color="#9BCE22" />
+          ) : (
+            <>
+              <FontAwesome 
+                name={deviceStatus === 'scanning' ? 'play-circle' : 'pause-circle'} 
+                size={32} 
+                color={deviceStatus === 'scanning' ? '#9BCE22' : '#FF4444'} 
+              />
+              <Text style={styles.statusText}>
+                {deviceStatus === 'scanning' ? 'Scanning' : deviceStatus === 'idle' ? 'Idle' : 'Unknown'}
+              </Text>
+            </>
+          )}
         </View>
+        <TouchableOpacity style={styles.refreshButton} onPress={checkDeviceStatus}>
+          <FontAwesome name="refresh" size={16} color="#666" />
+          <Text style={styles.refreshText}>Refresh Status</Text>
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.quickActions}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionGrid}>
+      <View style={styles.controlsContainer}>
+        <Text style={styles.sectionTitle}>Device Controls</Text>
+        <View style={styles.buttonContainer}>
           <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/audio')}
+            style={[styles.controlButton, styles.startButton]} 
+            onPress={handleStartScan}
+            disabled={isLoading || deviceStatus === 'scanning'}
           >
-            <FontAwesome name="music" size={36} color="#333" />
-            <Text style={styles.actionText}>Play Sounds</Text>
+            {isLoading && deviceStatus !== 'scanning' ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <>
+                <FontAwesome name="play" size={20} color="white" />
+                <Text style={styles.buttonText}>Start Scan</Text>
+              </>
+            )}
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push('/monitor')}
+            style={[styles.controlButton, styles.stopButton]} 
+            onPress={handleStopScan}
+            disabled={isLoading || deviceStatus !== 'scanning'}
           >
-            <FontAwesome name="camera" size={36} color="#333" />
-            <Text style={styles.actionText}>View Monitor</Text>
+            {isLoading && deviceStatus === 'scanning' ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <>
+                <FontAwesome name="stop" size={20} color="white" />
+                <Text style={styles.buttonText}>Stop Scan</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.recentActivity}>
-        <Text style={styles.sectionTitle}>Recent Activity</Text>
-        <View style={styles.activityList}>
-          {RECENT_ACTIVITIES.map((activity) => (
-            <View key={activity.id} style={styles.activityItem}>
-              <View style={[styles.activityIcon, { backgroundColor: activity.color + '15' }]}>
-                <FontAwesome name={activity.icon} size={20} color={activity.color} />
-              </View>
-              <View style={styles.activityInfo}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activityTime}>{activity.time}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
+      <View style={styles.instructionsContainer}>
+        <Text style={styles.sectionTitle}>Instructions</Text>
+        <Text style={styles.instructionText}>1. Make sure your device is connected to power</Text>
+        <Text style={styles.instructionText}>2. Place the device near your baby's crib</Text>
+        <Text style={styles.instructionText}>3. Press "Start Scan" to begin monitoring</Text>
+        <Text style={styles.instructionText}>4. Use the "Responses" tab to play sounds when needed</Text>
       </View>
     </ScrollView>
   );
@@ -98,102 +126,85 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f5f5',
   },
-  content: {
-    padding: 16,
+  contentContainer: {
+    padding: 20,
   },
   statusCard: {
-    backgroundColor: '#F8FFED',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
     padding: 16,
-    borderRadius: 12,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   statusTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   statusContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    marginBottom: 10,
   },
   statusText: {
+    fontSize: 16,
+    marginLeft: 10,
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  refreshText: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 8,
+    marginLeft: 5,
   },
-  statusTime: {
-    fontSize: 12,
-    color: '#666',
+  controlsContainer: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 20,
   },
-  quickActions: {
-    marginBottom: 24,
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  controlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  startButton: {
+    backgroundColor: '#9BCE22',
+  },
+  stopButton: {
+    backgroundColor: '#FF4444',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  instructionsContainer: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    padding: 16,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 16,
+    marginBottom: 15,
     color: '#333',
   },
-  actionGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 16,
-    marginTop: 12,
-  },
-  actionButton: {
-    flex: 1,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 12,
-    padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    height: 120,
-  },
-  actionText: {
+  instructionText: {
     fontSize: 16,
-    color: '#333',
-    fontWeight: '500',
-    textAlign: 'center',
+    marginBottom: 10,
+    color: '#555',
   },
-  recentActivity: {
-    marginBottom: 24,
-  },
-  activityList: {
-    marginTop: 8,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  activityIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  activityInfo: {
-    flex: 1,
-  },
-  activityTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 4,
-  },
-  activityTime: {
-    fontSize: 14,
-    color: '#666',
-  }
 }); 

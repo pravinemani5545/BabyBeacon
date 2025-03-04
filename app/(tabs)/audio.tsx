@@ -1,160 +1,173 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import Slider from '@react-native-community/slider';
-import { useState, useCallback, useMemo } from 'react';
-
-const SOUND_CATEGORIES = [
-  {
-    id: 'lullabies',
-    title: 'Lullabies',
-    sounds: [
-      { id: '1', name: 'Soft Lullaby', duration: '3:45', favorite: true },
-      { id: '2', name: 'Twinkle Twinkle', duration: '2:30', favorite: false },
-      { id: '3', name: 'Rock-a-bye Baby', duration: '3:15', favorite: true },
-    ]
-  },
-  {
-    id: 'nature',
-    title: 'Nature Sounds',
-    sounds: [
-      { id: '4', name: 'Ocean Waves', duration: '5:00', favorite: false },
-      { id: '5', name: 'Rainfall', duration: '10:00', favorite: false },
-      { id: '6', name: 'Forest Birds', duration: '8:00', favorite: false },
-    ]
-  },
-  {
-    id: 'white-noise',
-    title: 'White Noise',
-    sounds: [
-      { id: '7', name: 'Fan Sound', duration: '∞', favorite: false },
-      { id: '8', name: 'Gentle Static', duration: '∞', favorite: false },
-    ]
-  }
-];
+import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { WebView } from 'react-native-webview';
 
 export default function AudioScreen() {
-  const [volume, setVolume] = useState(0.5);
-  const [playingSound, setPlayingSound] = useState<string | null>(null);
-  const [favorites, setFavorites] = useState<Set<string>>(new Set(['1', '3']));
+  const { user, addBabyResponses, removeBabyResponses, sendResponse } = useAuth();
+  const [newResponseName, setNewResponseName] = useState('');
+  const [newResponseUrl, setNewResponseUrl] = useState('');
+  const [selectedBaby, setSelectedBaby] = useState<string | null>(null);
+  const [playingResponse, setPlayingResponse] = useState<string | null>(null);
+  const [isAddingResponse, setIsAddingResponse] = useState(false);
 
-  const handlePlay = useCallback((soundId: string) => {
-    const sound = SOUND_CATEGORIES
-      .flatMap(category => category.sounds)
-      .find(s => s.id === soundId);
-    
-    console.log(`${playingSound === soundId ? 'Stopping' : 'Playing'} sound: ${sound?.name}`);
-    setPlayingSound(current => current === soundId ? null : soundId);
-  }, []);
+  useEffect(() => {
+    if (user && user.scanning_baby) {
+      setSelectedBaby(user.scanning_baby);
+    }
+  }, [user]);
 
-  const toggleFavorite = useCallback((soundId: string) => {
-    console.log(`Toggling favorite for sound ID: ${soundId}`);
-    setFavorites(current => {
-      const newFavorites = new Set(current);
-      if (newFavorites.has(soundId)) {
-        newFavorites.delete(soundId);
-        console.log(`Removed ${soundId} from favorites`);
-      } else {
-        newFavorites.add(soundId);
-        console.log(`Added ${soundId} to favorites`);
-      }
-      return newFavorites;
+  const handleAddResponse = async () => {
+    if (!selectedBaby || !newResponseName || !newResponseUrl) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!newResponseUrl.includes('youtube.com') && !newResponseUrl.includes('youtu.be')) {
+      Alert.alert('Error', 'Please enter a valid YouTube URL');
+      return;
+    }
+
+    const success = await addBabyResponses(selectedBaby, {
+      [newResponseName]: newResponseUrl
     });
-  }, []);
 
-  // Get all favorite sounds across categories
-  const favoriteSounds = useMemo(() => {
-    return SOUND_CATEGORIES.flatMap(category => 
-      category.sounds.filter(sound => favorites.has(sound.id))
+    if (success) {
+      Alert.alert('Success', 'Response added successfully');
+      setNewResponseName('');
+      setNewResponseUrl('');
+      setIsAddingResponse(false);
+    } else {
+      Alert.alert('Error', 'Failed to add response');
+    }
+  };
+
+  const handleRemoveResponse = async (responseName: string) => {
+    if (!selectedBaby) return;
+
+    const success = await removeBabyResponses(selectedBaby, [responseName]);
+
+    if (success) {
+      Alert.alert('Success', 'Response removed successfully');
+      if (playingResponse === responseName) {
+        setPlayingResponse(null);
+      }
+    } else {
+      Alert.alert('Error', 'Failed to remove response');
+    }
+  };
+
+  const handlePlayResponse = async (url: string) => {
+    const success = await sendResponse(url);
+    
+    if (!success) {
+      Alert.alert('Error', 'Failed to play response');
+    }
+  };
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Not logged in</Text>
+      </View>
     );
-  }, [favorites]);
+  }
+
+  // Get responses for selected baby
+  const babyResponses = selectedBaby && user.baby && user.baby[selectedBaby] 
+    ? user.baby[selectedBaby].responses || {} 
+    : {};
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.volumeSection}>
-        <View style={styles.volumeHeader}>
-          <Text style={styles.volumeTitle}>Volume</Text>
-          <FontAwesome name="volume-up" size={24} color="#666" />
-        </View>
-        <Slider
-          style={styles.slider}
-          value={volume}
-          onValueChange={setVolume}
-          minimumValue={0}
-          maximumValue={1}
-          minimumTrackTintColor="#9BCE22"
-          maximumTrackTintColor="#ddd"
-        />
+      <View style={styles.header}>
+        <Text style={styles.title}>Responses</Text>
+        <TouchableOpacity onPress={() => setIsAddingResponse(!isAddingResponse)}>
+          <FontAwesome name={isAddingResponse ? 'times' : 'plus'} size={24} color="#9BCE22" />
+        </TouchableOpacity>
       </View>
 
-      {/* Favorites Section */}
-      {favoriteSounds.length > 0 && (
-        <View style={styles.category}>
-          <Text style={styles.categoryTitle}>Favorites</Text>
-          <View style={styles.soundsList}>
-            {favoriteSounds.map(sound => (
-              <TouchableOpacity
-                key={sound.id}
-                style={styles.soundItem}
-                onPress={() => handlePlay(sound.id)}
-              >
-                <View style={styles.soundInfo}>
-                  <Text style={styles.soundName}>{sound.name}</Text>
-                  <Text style={styles.duration}>{sound.duration}</Text>
-                </View>
-                <View style={styles.soundControls}>
-                  <TouchableOpacity onPress={() => toggleFavorite(sound.id)}>
-                    <FontAwesome 
-                      name="heart" 
-                      size={20} 
-                      color="#ff4444"
-                    />
-                  </TouchableOpacity>
-                  <FontAwesome 
-                    name={playingSound === sound.id ? 'pause' : 'play'} 
-                    size={20} 
-                    color="#9BCE22" 
-                  />
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
+      {isAddingResponse && (
+        <View style={styles.addResponseForm}>
+          <Text style={styles.formTitle}>Add New Response</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Response Name (e.g. Lullaby)"
+            value={newResponseName}
+            onChangeText={setNewResponseName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="YouTube URL"
+            value={newResponseUrl}
+            onChangeText={setNewResponseUrl}
+            autoCapitalize="none"
+          />
+          <TouchableOpacity style={styles.addButton} onPress={handleAddResponse}>
+            <Text style={styles.buttonText}>Add Response</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* Regular Categories */}
-      {SOUND_CATEGORIES.map(category => (
-        <View key={category.id} style={styles.category}>
-          <Text style={styles.categoryTitle}>{category.title}</Text>
-          <View style={styles.soundsList}>
-            {category.sounds.map(sound => (
-              <TouchableOpacity
-                key={sound.id}
-                style={styles.soundItem}
-                onPress={() => handlePlay(sound.id)}
-              >
-                <View style={styles.soundInfo}>
-                  <Text style={styles.soundName}>{sound.name}</Text>
-                  <Text style={styles.duration}>{sound.duration}</Text>
-                </View>
-                <View style={styles.soundControls}>
-                  <TouchableOpacity onPress={() => toggleFavorite(sound.id)}>
+      {Object.keys(babyResponses).length > 0 ? (
+        <View style={styles.responsesList}>
+          {Object.entries(babyResponses).map(([name, url]) => (
+            <View key={name} style={styles.responseItem}>
+              <View style={styles.responseHeader}>
+                <Text style={styles.responseName}>{name}</Text>
+                <View style={styles.responseActions}>
+                  <TouchableOpacity 
+                    style={styles.actionButton} 
+                    onPress={() => {
+                      if (playingResponse === name) {
+                        setPlayingResponse(null);
+                      } else {
+                        setPlayingResponse(name);
+                        handlePlayResponse(url as string);
+                      }
+                    }}
+                  >
                     <FontAwesome 
-                      name="heart" 
+                      name={playingResponse === name ? 'pause' : 'play'} 
                       size={20} 
-                      color={favorites.has(sound.id) ? '#ff4444' : '#ddd'} 
+                      color="#9BCE22" 
                     />
                   </TouchableOpacity>
-                  <FontAwesome 
-                    name={playingSound === sound.id ? 'pause' : 'play'} 
-                    size={20} 
-                    color="#9BCE22" 
+                  <TouchableOpacity 
+                    style={styles.actionButton} 
+                    onPress={() => handleRemoveResponse(name)}
+                  >
+                    <FontAwesome name="trash" size={20} color="#FF4444" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              {playingResponse === name && (
+                <View style={styles.videoContainer}>
+                  <WebView
+                    style={styles.video}
+                    source={{ uri: url as string }}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    startInLoadingState={true}
+                    allowsInlineMediaPlayback={true}
+                    mediaPlaybackRequiresUserAction={false}
                   />
                 </View>
-              </TouchableOpacity>
-            ))}
-          </View>
+              )}
+            </View>
+          ))}
         </View>
-      ))}
+      ) : (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>No responses added yet.</Text>
+          <Text style={styles.emptySubtext}>
+            Add responses to play for your baby when they need comfort.
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -165,124 +178,104 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 16,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
+    color: '#333',
+  },
+  addResponseForm: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    padding: 16,
     marginBottom: 20,
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    justifyContent: 'space-between',
-  },
-  soundCard: {
-    width: '47%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  soundPlaceholder: {
-    height: 120,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  soundName: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginVertical: 8,
-  },
-  playButton: {
-    backgroundColor: '#9BCE22',
-    padding: 8,
-    borderRadius: 20,
-    marginHorizontal: 20,
-    marginBottom: 12,
-  },
-  playButtonText: {
-    color: '#fff',
-    textAlign: 'center',
-  },
-  volumeControl: {
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  volumeText: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  bottomSpacing: {
-    height: 40,
-  },
-  volumeSection: {
-    marginTop: 20,
-    marginBottom: 20,
-  },
-  sectionTitle: {
+  formTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 15,
+    color: '#333',
   },
-  category: {
-    marginBottom: 16,
+  input: {
+    backgroundColor: 'white',
+    borderRadius: 5,
+    padding: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
-  categoryTitle: {
-    fontSize: 16,
+  addButton: {
+    backgroundColor: '#9BCE22',
+    padding: 12,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  buttonText: {
+    color: 'white',
     fontWeight: 'bold',
-    marginBottom: 8,
+    fontSize: 16,
   },
-  soundGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    justifyContent: 'space-between',
+  responsesList: {
+    marginTop: 10,
   },
-  volumeHeader: {
+  responseItem: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  responseHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
   },
-  volumeTitle: {
+  responseName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
-  },
-  soundsList: {
-    gap: 8,
-  },
-  soundItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 8,
-  },
-  soundInfo: {
     flex: 1,
   },
-  soundControls: {
+  responseActions: {
     flexDirection: 'row',
-    gap: 16,
+  },
+  actionButton: {
+    padding: 8,
+    marginLeft: 5,
+  },
+  videoContainer: {
+    height: 200,
+    marginTop: 15,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  video: {
+    flex: 1,
+  },
+  emptyState: {
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
   },
-  soundName: {
-    fontSize: 16,
-    fontWeight: '500',
+  emptyText: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#333',
-    marginBottom: 4,
+    marginBottom: 10,
   },
-  duration: {
-    fontSize: 14,
+  emptySubtext: {
+    fontSize: 16,
     color: '#666',
-  }
+    textAlign: 'center',
+  },
 }); 
